@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import enum
+import json
 import subprocess
 import typing
 
@@ -18,81 +19,50 @@ class Pactl:
 	def list_cards() -> typing.Iterator[str]:
 		completed_process = subprocess.run([
 			'/usr/bin/pactl',
+			'--format=json',
 			'list',
 			'cards',
 			'short',
 		], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8')
 		completed_process.check_returncode()
+		cards = json.loads(completed_process.stdout)
 
-		for line in completed_process.stdout.splitlines():
-			parts = line.split('\t')
-			assert len(parts) == 3
-
-			card_name = parts[1]
-			yield card_name
+		for card in cards:
+			yield card['name']
 
 	@staticmethod
 	def list_available_profiles(card_name: str) -> typing.Iterator[str]:
 		completed_process = subprocess.run([
 			'/usr/bin/pactl',
+			'--format=json',
 			'list',
 			'cards',
 		], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8')
 		completed_process.check_returncode()
+		cards = json.loads(completed_process.stdout)
 
-		class State(enum.Enum):
-			WRONG_CARD = enum.auto()
-			MAYBE_RIGHT_CARD = enum.auto()
-			RIGHT_CARD = enum.auto()
-			RIGHT_CARD_PROFILES = enum.auto()
-
-		state = State.WRONG_CARD
-		for line in completed_process.stdout.splitlines():
-			match state:
-				case State.WRONG_CARD:
-					if line.startswith('Card #'):
-						state = State.MAYBE_RIGHT_CARD
-
-				case State.MAYBE_RIGHT_CARD:
-					assert line.startswith('\tName: ')
-					current_card_name = line[len('\tName: '):]
-					if current_card_name == card_name:
-						state = State.RIGHT_CARD
-					else:
-						state = State.WRONG_CARD
-
-				case State.RIGHT_CARD:
-					if line == '':
-						return
-					elif line == '\tProfiles:':
-						state = State.RIGHT_CARD_PROFILES
-
-				case State.RIGHT_CARD_PROFILES:
-					if line.startswith('\t\t'):
-						line = line[len('\t\t'):]
-						line_parts = line.split(':')
-						profile_name = line_parts[0]
-						available = line_parts[-1]
-						if available == ' yes)':
-							yield profile_name
-					else:
-						return
+		for card in cards:
+			if card['name'] == card_name:
+				profiles = card['profiles']
+				for profile_name, properties in profiles.items():
+					if properties['available']:
+						yield profile_name
+				return
 
 	@staticmethod
 	def list_sources() -> typing.Iterator[str]:
 		completed_process = subprocess.run([
 			'/usr/bin/pactl',
+			'--format=json',
 			'list',
 			'sources',
 			'short',
 		], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8')
 		completed_process.check_returncode()
+		sources = json.loads(completed_process.stdout)
 
-		for line in completed_process.stdout.splitlines():
-			parts = line.split('\t')
-			assert len(parts) == 5
-
-			source_name = parts[1]
+		for source in sources:
+			source_name = source['name']
 			if not source_name.endswith('.monitor'):
 				yield source_name
 

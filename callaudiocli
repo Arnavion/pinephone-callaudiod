@@ -1,0 +1,82 @@
+#!/usr/bin/python3
+
+import argparse
+import typing
+
+import dasbus.connection
+import dasbus.typing
+
+
+# Ref: https://gitlab.com/mobian1/callaudiod/-/blob/0.1.9/libcallaudio/libcallaudio.h
+class DbusAPI:
+	AudioMode = typing.NewType('AudioMode', dasbus.typing.UInt32)
+	CALL_AUDIO_MODE_DEFAULT = AudioMode(dasbus.typing.UInt32(0))
+	CALL_AUDIO_MODE_CALL = AudioMode(dasbus.typing.UInt32(1))
+
+	SpeakerState = typing.NewType('SpeakerState', dasbus.typing.UInt32)
+	CALL_AUDIO_SPEAKER_OFF = SpeakerState(dasbus.typing.UInt32(0))
+	CALL_AUDIO_SPEAKER_ON = SpeakerState(dasbus.typing.UInt32(1))
+
+	MicState = typing.NewType('MicState', dasbus.typing.UInt32)
+	CALL_AUDIO_MIC_OFF = MicState(dasbus.typing.UInt32(0))
+	CALL_AUDIO_MIC_ON = MicState(dasbus.typing.UInt32(1))
+
+
+parser = argparse.ArgumentParser(prog='callaudiocli', description='A helper tool for callaudiod')
+parser.add_argument('-m', '--select-mode', type=int, choices=[0, 1], help='Select mode')
+parser.add_argument('-s', '--enable-speaker', type=int, choices=[0, 1], help='Enable speaker')
+parser.add_argument('-u', '--mute-mic', type=int, choices=[0, 1], help='Mute microphone')
+parser.add_argument('-S', '--status', action='store_true', help='Print status')
+
+args = parser.parse_args()
+
+select_mode: typing.Literal[0, 1] | None = args.select_mode
+enable_speaker: typing.Literal[0, 1] | None = args.enable_speaker
+mute_mic: typing.Literal[0, 1] | None = args.mute_mic
+status: bool = args.status
+
+bus = dasbus.connection.SessionMessageBus()
+
+callaudiod: dasbus.connection.ObjectProxy = bus.get_proxy('org.mobian_project.CallAudio', '/org/mobian_project/CallAudio')
+
+if select_mode is not None:
+	callaudiod.SelectMode(select_mode)
+
+if enable_speaker is not None:
+	callaudiod.EnableSpeaker(enable_speaker)
+
+if mute_mic is not None:
+	callaudiod.MuteMic(mute_mic)
+
+if status or (select_mode is None and enable_speaker is None and mute_mic is None):
+	properties = callaudiod.GetAll('org.mobian_project.CallAudio')
+
+	raw_audio_mode: DbusAPI.AudioMode = properties['AudioMode'].get_uint32()
+	match raw_audio_mode:
+		case DbusAPI.CALL_AUDIO_MODE_DEFAULT:
+			audio_mode = 'CALL_AUDIO_MODE_DEFAULT'
+		case DbusAPI.CALL_AUDIO_MODE_CALL:
+			audio_mode = 'CALL_AUDIO_MODE_CALL'
+		case _:
+			raise Exception(f'callaudiod returned unexpected AudioMode {raw_audio_mode}')
+	print(f'Selected mode: {audio_mode}')
+
+	raw_speaker_state: DbusAPI.SpeakerState = properties['SpeakerState'].get_uint32()
+	match raw_speaker_state:
+		case DbusAPI.CALL_AUDIO_SPEAKER_OFF:
+			speaker_state = 'CALL_AUDIO_SPEAKER_OFF'
+		case DbusAPI.CALL_AUDIO_SPEAKER_ON:
+			speaker_state = 'CALL_AUDIO_SPEAKER_ON'
+		case _:
+			raise Exception(f'callaudiod returned unexpected SpeakerState {raw_speaker_state}')
+	print(f'Speaker enabled: {speaker_state}')
+
+	raw_mic_state: DbusAPI.MicState = properties['MicState'].get_uint32()
+	match raw_mic_state:
+		case DbusAPI.CALL_AUDIO_MIC_OFF:
+			mic_state = 'CALL_AUDIO_MIC_OFF'
+		case DbusAPI.CALL_AUDIO_MIC_ON:
+			mic_state = 'CALL_AUDIO_MIC_ON'
+		case _:
+			raise Exception(f'callaudiod returned unexpected MicState {raw_mic_state}')
+	print(f'Mic muted: {mic_state}')

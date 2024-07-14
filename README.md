@@ -15,7 +15,9 @@ The necessary files are:
 
 - `org.mobian_project.CallAudio.xml` - the D-Bus interface definition.
 
-`make install` will install these to `/usr/local/libexec/pinephone-callaudiod/`, `/usr/local/share/dbus-1/services/` and `/usr/local/share/dbus-1/interfaces/` respectively. The paths are controlled by setting `DESTDIR`, `prefix`, `libexecdir` and `datadir` in the `make install` invocation.
+- `callaudiocli` - the equivalent of the `callaudiocli` binary provided by upstream callaudiod.
+
+`make install` will install these to `/usr/local/libexec/pinephone-callaudiod/`, `/usr/local/share/dbus-1/services/`, `/usr/local/share/dbus-1/interfaces/` and `/usr/local/bin/` respectively. The paths are controlled by setting `DESTDIR`, `prefix`, `bindir`, `datadir` and `libexecdir` in the `make install` invocation.
 
 
 # License

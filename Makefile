@@ -1,4 +1,5 @@
 prefix = /usr/local
+bindir = $(prefix)/bin
 datadir = $(prefix)/share
 libexecdir = $(prefix)/libexec
 
@@ -12,3 +13,5 @@ install: org.mobian_project.CallAudio.service
 	install -Dm0755 org.mobian_project.CallAudio.service $(DESTDIR)$(datadir)/dbus-1/services/org.mobian_project.CallAudio.service
 
 	install -Dm0755 org.mobian_project.CallAudio.xml $(DESTDIR)$(datadir)/dbus-1/interfaces/org.mobian_project.CallAudio.xml
+
+	install -Dm0755 callaudiocli $(DESTDIR)$(bindir)/callaudiocli

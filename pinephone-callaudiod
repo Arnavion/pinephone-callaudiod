@@ -1,0 +1,405 @@
+#!/usr/bin/python3
+
+import enum
+import subprocess
+import typing
+
+import dasbus.connection
+import dasbus.loop
+import dasbus.typing
+
+import gi
+gi.require_version("GLib", "2.0")
+from gi.repository import GLib
+
+
+class Pactl:
+	@staticmethod
+	def list_cards() -> typing.Iterator[str]:
+		completed_process = subprocess.run([
+			'/usr/bin/pactl',
+			'list',
+			'cards',
+			'short',
+		], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8')
+		completed_process.check_returncode()
+
+		for line in completed_process.stdout.splitlines():
+			parts = line.split('\t')
+			assert len(parts) == 3
+
+			card_name = parts[1]
+			yield card_name
+
+	@staticmethod
+	def list_available_profiles(card_name: str) -> typing.Iterator[str]:
+		completed_process = subprocess.run([
+			'/usr/bin/pactl',
+			'list',
+			'cards',
+		], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8')
+		completed_process.check_returncode()
+
+		class State(enum.Enum):
+			WRONG_CARD = enum.auto()
+			MAYBE_RIGHT_CARD = enum.auto()
+			RIGHT_CARD = enum.auto()
+			RIGHT_CARD_PROFILES = enum.auto()
+
+		state = State.WRONG_CARD
+		for line in completed_process.stdout.splitlines():
+			match state:
+				case State.WRONG_CARD:
+					if line.startswith('Card #'):
+						state = State.MAYBE_RIGHT_CARD
+
+				case State.MAYBE_RIGHT_CARD:
+					assert line.startswith('\tName: ')
+					current_card_name = line[len('\tName: '):]
+					if current_card_name == card_name:
+						state = State.RIGHT_CARD
+					else:
+						state = State.WRONG_CARD
+
+				case State.RIGHT_CARD:
+					if line == '':
+						return
+					elif line == '\tProfiles:':
+						state = State.RIGHT_CARD_PROFILES
+
+				case State.RIGHT_CARD_PROFILES:
+					if line.startswith('\t\t'):
+						line = line[len('\t\t'):]
+						line_parts = line.split(':')
+						profile_name = line_parts[0]
+						available = line_parts[-1]
+						if available == ' yes)':
+							yield profile_name
+					else:
+						return
+
+	@staticmethod
+	def list_sources() -> typing.Iterator[str]:
+		completed_process = subprocess.run([
+			'/usr/bin/pactl',
+			'list',
+			'sources',
+			'short',
+		], stdin=subprocess.DEVNULL, capture_output=True, encoding='utf-8')
+		completed_process.check_returncode()
+
+		for line in completed_process.stdout.splitlines():
+			parts = line.split('\t')
+			assert len(parts) == 5
+
+			source_name = parts[1]
+			if not source_name.endswith('.monitor'):
+				yield source_name
+
+class PulseAudioState:
+	def __init__(self):
+		main_card_name = None
+		hdmi_card_name = None
+
+		for card_name in Pactl.list_cards():
+			if 'hdmi' in card_name:
+				assert hdmi_card_name is None
+				hdmi_card_name = card_name
+			else:
+				assert main_card_name is None
+				main_card_name = card_name
+
+		assert main_card_name is not None
+
+		self.__main_card_name = main_card_name
+		self.__hdmi_card_name = hdmi_card_name
+
+		self.__main_card_hifi_source_name = None
+		self.__main_card_voice_call_source_name = None
+
+	@property
+	def main_card_name(self) -> str:
+		return self.__main_card_name
+
+	@property
+	def main_card_hifi_source_name(self) -> str:
+		if self.__main_card_hifi_source_name is None:
+			self.__main_card_hifi_source_name = next(Pactl.list_sources())
+
+		return self.__main_card_hifi_source_name
+
+	@property
+	def main_card_voice_call_source_name(self) -> str:
+		if self.__main_card_voice_call_source_name is None:
+			self.__main_card_voice_call_source_name = next(Pactl.list_sources())
+
+		return self.__main_card_voice_call_source_name
+
+	@property
+	def hdmi_card_name(self) -> str | None:
+		return self.__hdmi_card_name
+
+# Ref: https://gitlab.com/mobian1/callaudiod/-/blob/0.1.9/libcallaudio/libcallaudio.h
+class DbusAPI:
+	AudioMode = typing.NewType('AudioMode', dasbus.typing.UInt32)
+	CALL_AUDIO_MODE_DEFAULT = AudioMode(dasbus.typing.UInt32(0))
+	CALL_AUDIO_MODE_CALL = AudioMode(dasbus.typing.UInt32(1))
+
+	SpeakerState = typing.NewType('SpeakerState', dasbus.typing.UInt32)
+	CALL_AUDIO_SPEAKER_OFF = SpeakerState(dasbus.typing.UInt32(0))
+	CALL_AUDIO_SPEAKER_ON = SpeakerState(dasbus.typing.UInt32(1))
+
+	MicState = typing.NewType('MicState', dasbus.typing.UInt32)
+	CALL_AUDIO_MIC_OFF = MicState(dasbus.typing.UInt32(0))
+	CALL_AUDIO_MIC_ON = MicState(dasbus.typing.UInt32(1))
+
+class Mode(enum.Enum):
+	DEFAULT = enum.auto()
+	CALL = enum.auto()
+
+class Speaker(enum.Enum):
+	DEFAULT = enum.auto()
+	FORCED = enum.auto()
+
+class Mic(enum.Enum):
+	MUTED = enum.auto()
+	UNMUTED = enum.auto()
+
+class Choice(typing.NamedTuple):
+	speaker: Speaker
+	mic: Mic
+
+def select(mode: Mode) -> None:
+	choice = CallAudiod.choice(mode)
+
+	profile_name = ''
+	match mode:
+		case Mode.DEFAULT:
+			profile_name = 'HiFi'
+		case Mode.CALL:
+			profile_name = 'Voice Call'
+
+	available_profiles = frozenset(Pactl.list_available_profiles(pulseaudio_state.main_card_name))
+	found_profile = False
+
+	match choice.speaker:
+		case Speaker.DEFAULT:
+			for profile_suffix in ('Headphones, Headset', 'Headphones, Mic', 'Earpiece, Mic'):
+				if f'{profile_name} ({profile_suffix})' in available_profiles:
+					profile_name = f'{profile_name} ({profile_suffix})'
+					found_profile = True
+					break
+		case Speaker.FORCED:
+			for profile_suffix in ('Headset, Speaker', 'Mic, Speaker'):
+				if f'{profile_name} ({profile_suffix})' in available_profiles:
+					profile_name = f'{profile_name} ({profile_suffix})'
+					found_profile = True
+					break
+
+	assert found_profile
+
+	print(f'Selecting profile {profile_name}')
+	subprocess.run([
+		'/usr/bin/pactl',
+		'set-card-profile',
+		pulseaudio_state.main_card_name,
+		profile_name,
+	], stdin=subprocess.DEVNULL)
+
+	match mode:
+		case Mode.DEFAULT:
+			source = pulseaudio_state.main_card_hifi_source_name
+		case Mode.CALL:
+			source = pulseaudio_state.main_card_voice_call_source_name
+
+	match choice.mic:
+		case Mic.MUTED:
+			subprocess.run([
+				'/usr/bin/pactl',
+				'set-source-mute',
+				source,
+				'1',
+			], stdin=subprocess.DEVNULL)
+			subprocess.run([
+				'/usr/bin/amixer',
+				'-c',
+				'PinePhone',
+				'cset',
+				'name=Mic1 Capture Switch',
+				'off',
+			], stdin=subprocess.DEVNULL)
+
+		case Mic.UNMUTED:
+			subprocess.run([
+				'/usr/bin/pactl',
+				'set-source-mute',
+				source,
+				'0',
+			], stdin=subprocess.DEVNULL)
+			subprocess.run([
+				'/usr/bin/amixer',
+				'-c',
+				'PinePhone',
+				'cset',
+				'name=Mic1 Capture Switch',
+				'on',
+			], stdin=subprocess.DEVNULL)
+
+class CallAudiod:
+	__dbus_xml__ = """
+	<node>
+		<interface name="org.mobian_project.CallAudio">
+			<method name="SelectMode">
+				<arg type="u" name="mode" direction="in"/>
+				<arg type="b" name="success" direction="out"/>
+			</method>
+			<method name="EnableSpeaker">
+				<arg type="b" name="enable" direction="in"/>
+				<arg type="b" name="success" direction="out"/>
+			</method>
+			<method name="MuteMic">
+				<arg type="b" name="mute" direction="in"/>
+				<arg type="b" name="success" direction="out"/>
+			</method>
+			<property type="u" name="AudioMode" access="read"/>
+			<property type="u" name="SpeakerState" access="read"/>
+			<property type="u" name="MicState" access="read"/>
+		</interface>
+	</node>
+	"""
+
+	__default_mode_choice = Choice(speaker=Speaker.DEFAULT, mic=Mic.UNMUTED)
+	__call_mode_choice = Choice(speaker=Speaker.DEFAULT, mic=Mic.UNMUTED)
+
+	def __init__(self):
+		self.__mode = Mode.DEFAULT
+
+	def SelectMode(self, mode: dasbus.typing.UInt32) -> dasbus.typing.Bool:
+		match mode:
+			case DbusAPI.CALL_AUDIO_MODE_DEFAULT:
+				self.__mode = Mode.DEFAULT
+
+			case DbusAPI.CALL_AUDIO_MODE_CALL:
+				if self.__mode == Mode.DEFAULT:
+					# When switching from DEFAULT to CALL, first reset call mode choice to defaults,
+					# because GNOME calls expects CALL mode to start off with defaults.
+					CallAudiod.__call_mode_choice = Choice(speaker=Speaker.DEFAULT, mic=Mic.UNMUTED)
+
+				self.__mode = Mode.CALL
+
+			case _:
+				return False
+
+		select(self.__mode)
+
+		return True
+
+	def EnableSpeaker(self, enable: dasbus.typing.Bool) -> dasbus.typing.Bool:
+		if enable:
+			speaker = Speaker.FORCED
+		else:
+			speaker = Speaker.DEFAULT
+
+		match self.__mode:
+			case Mode.DEFAULT:
+				CallAudiod.__default_mode_choice = Choice(speaker=speaker, mic=CallAudiod.__default_mode_choice.mic)
+			case Mode.CALL:
+				CallAudiod.__call_mode_choice = Choice(speaker=speaker, mic=CallAudiod.__call_mode_choice.mic)
+
+		select(self.__mode)
+
+		return True
+
+	def MuteMic(self, mute: dasbus.typing.Bool) -> dasbus.typing.Bool:
+		if mute:
+			mic = Mic.MUTED
+		else:
+			mic = Mic.UNMUTED
+
+		match self.__mode:
+			case Mode.DEFAULT:
+				CallAudiod.__default_mode_choice = Choice(speaker=CallAudiod.__default_mode_choice.speaker, mic=mic)
+			case Mode.CALL:
+				CallAudiod.__call_mode_choice = Choice(speaker=CallAudiod.__call_mode_choice.speaker, mic=mic)
+
+		select(self.__mode)
+
+		return True
+
+	@property
+	def AudioMode(self) -> DbusAPI.AudioMode:
+		select(self.__mode)
+
+		match self.__mode:
+			case Mode.DEFAULT:
+				return DbusAPI.CALL_AUDIO_MODE_DEFAULT
+
+			case Mode.CALL:
+				return DbusAPI.CALL_AUDIO_MODE_CALL
+
+	@property
+	def SpeakerState(self) -> DbusAPI.SpeakerState:
+		select(self.__mode)
+
+		choice = CallAudiod.choice(self.__mode)
+
+		match choice.speaker:
+			case Speaker.DEFAULT:
+				return DbusAPI.CALL_AUDIO_SPEAKER_OFF
+
+			case Speaker.FORCED:
+				return DbusAPI.CALL_AUDIO_SPEAKER_ON
+
+	@property
+	def MicState(self) -> DbusAPI.MicState:
+		select(self.__mode)
+
+		choice = CallAudiod.choice(self.__mode)
+
+		match choice.mic:
+			case Mic.MUTED:
+				return DbusAPI.CALL_AUDIO_MIC_OFF
+
+			case Mic.UNMUTED:
+				return DbusAPI.CALL_AUDIO_MIC_ON
+
+	@staticmethod
+	def choice(mode: Mode) -> Choice:
+		match mode:
+			case Mode.DEFAULT:
+				return CallAudiod.__default_mode_choice
+			case Mode.CALL:
+				return CallAudiod.__call_mode_choice
+
+
+def refresh_pulseaudio_state():
+	global pulseaudio_state
+	pulseaudio_state = PulseAudioState()
+
+	if pulseaudio_state.hdmi_card_name is not None:
+		subprocess.run([
+			'/usr/bin/pactl',
+			'set-card-profile',
+			pulseaudio_state.hdmi_card_name,
+			'off',
+		], stdin=subprocess.DEVNULL)
+
+def resync_callback():
+	_ = callaudiod.AudioMode
+
+	return True
+
+
+refresh_pulseaudio_state()
+
+callaudiod = CallAudiod()
+callaudiod.SelectMode(DbusAPI.CALL_AUDIO_MODE_DEFAULT)
+
+bus = dasbus.connection.SessionMessageBus()
+bus.publish_object('/org/mobian_project/CallAudio', callaudiod)
+bus.register_service('org.mobian_project.CallAudio')
+
+GLib.timeout_add(5 * 1000, resync_callback)
+
+loop = dasbus.loop.EventLoop()
+loop.run()

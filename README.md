@@ -1,3 +1,23 @@
+A replacement for [callaudiod](https://gitlab.com/mobian1/callaudiod) for the Pine64 PinePhone device.
+
+Pulseaudio v17 and Pipewire v1.2 changed the way audio profiles are generated, which upstream callaudiod does not handle well. This replacement does, and is also simpler to hack upon by virtue of having a much simpler state machine and much less code in general.
+
+"Replacement" means that this script can be used in the place of callaudiod's `callaudiod` binary but provides the same D-Bus API, so that other applications that talk to callaudiod directly over D-Bus or via `libcallaudiod` will work without modification.
+
+
+# Installation
+
+The necessary files are:
+
+- `pinephone-callaudiod` - the service script itself.
+
+- `org.mobian_project.CallAudio.service` - the D-Bus unit file that tells D-Bus to autostart the service when a client tries to talk to it.
+
+- `org.mobian_project.CallAudio.xml` - the D-Bus interface definition.
+
+`make install` will install these to `/usr/local/libexec/pinephone-callaudiod/`, `/usr/local/share/dbus-1/services/` and `/usr/local/share/dbus-1/interfaces/` respectively. The paths are controlled by setting `DESTDIR`, `prefix`, `libexecdir` and `datadir` in the `make install` invocation.
+
+
 # License
 
 AGPL-3.0-only
@@ -22,3 +42,5 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ```
+
+The `org.mobian_project.CallAudio.service` and `org.mobian_project.CallAudio.xml` files are copied from [upstream callaudiod](https://gitlab.com/mobian1/callaudiod) which uses the GPL-3.0-or-later license.

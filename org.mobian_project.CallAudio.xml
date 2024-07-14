@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<node>
+  <!-- org.mobian_project.CallAudio
+       @short_description: call related audio interface
+
+       This D-Bus interface is used to select audio modes
+       and access other related audio functionality in
+       a mobile phone context.
+  -->
+  <interface name="org.mobian_project.CallAudio">
+
+    <!--
+        SelectMode:
+        @mode: 0 = default audio mode, 1 = voice call mode
+        @success: operation status
+
+        Sets the audio routing configuration according to the @mode
+        parameter.
+
+        If @mode isn't an authorized value,
+        #org.freedesktop.DBus.Error.InvalidArgs error is returned.
+    -->
+    <method name="SelectMode">
+      <arg direction="in" name="mode" type="u"/>
+      <arg direction="out" name="success" type="b"/>
+    </method>
+
+    <!--
+        AudioMode:
+        0 = default audio mode, 1 = voice call mode, 255 = unknown
+    -->
+    <property name="AudioMode" type="u" access="read"/>
+
+    <method name="EnableSpeaker">
+      <arg direction="in" name="enable" type="b"/>
+      <arg direction="out" name="success" type="b"/>
+    </method>
+
+    <!--
+        SpeakerState:
+        0 = off, 1 = on, 255 = unknown
+        all other values should be considered the same as 'unknown'
+    -->
+    <property name="SpeakerState" type="u" access="read"/>
+
+    <method name="MuteMic">
+      <arg direction="in" name="mute" type="b"/>
+      <arg direction="out" name="success" type="b"/>
+    </method>
+
+    <!--
+        MicState:
+        0 = off, 1 = on, 255 = unknown
+        all other values should be considered the same as 'unknown'
+    -->
+    <property name="MicState" type="u" access="read"/>
+  </interface>
+</node>

@@ -129,7 +129,7 @@ class Mode(enum.Enum):
 
 class Speaker(enum.Enum):
 	DEFAULT = enum.auto()
-	FORCED = enum.auto()
+	DISABLED = enum.auto()
 
 class Mic(enum.Enum):
 	MUTED = enum.auto()
@@ -154,13 +154,13 @@ def select(mode: Mode) -> None:
 
 	match choice.speaker:
 		case Speaker.DEFAULT:
-			for profile_suffix in ('Headphones, Headset', 'Headphones, Mic', 'Earpiece, Mic'):
+			for profile_suffix in ('Headphones, Headset', 'Headphones, Mic', 'Headset, Speaker', 'Mic, Speaker'):
 				if f'{profile_name} ({profile_suffix})' in available_profiles:
 					profile_name = f'{profile_name} ({profile_suffix})'
 					found_profile = True
 					break
-		case Speaker.FORCED:
-			for profile_suffix in ('Headset, Speaker', 'Mic, Speaker'):
+		case Speaker.DISABLED:
+			for profile_suffix in ('Headphones, Headset', 'Headphones, Mic', 'Earpiece, Headset', 'Earpiece, Mic'):
 				if f'{profile_name} ({profile_suffix})' in available_profiles:
 					profile_name = f'{profile_name} ({profile_suffix})'
 					found_profile = True
@@ -266,9 +266,9 @@ class CallAudiod:
 
 	def EnableSpeaker(self, enable: dasbus.typing.Bool) -> dasbus.typing.Bool:
 		if enable:
-			speaker = Speaker.FORCED
-		else:
 			speaker = Speaker.DEFAULT
+		else:
+			speaker = Speaker.DISABLED
 
 		match self.__mode:
 			case Mode.DEFAULT:
@@ -315,10 +315,10 @@ class CallAudiod:
 
 		match choice.speaker:
 			case Speaker.DEFAULT:
-				return DbusAPI.CALL_AUDIO_SPEAKER_OFF
-
-			case Speaker.FORCED:
 				return DbusAPI.CALL_AUDIO_SPEAKER_ON
+
+			case Speaker.DISABLED:
+				return DbusAPI.CALL_AUDIO_SPEAKER_OFF
 
 	@property
 	def MicState(self) -> DbusAPI.MicState:

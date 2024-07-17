@@ -138,6 +138,8 @@ class Mic(enum.Enum):
 class Choice(typing.NamedTuple):
 	speaker: Speaker
 	mic: Mic
+	speaker_default_profile_suffixes: tuple[str, ...]
+	speaker_forced_profile_suffixes: tuple[str, ...]
 
 def select(mode: Mode) -> None:
 	choice = CallAudiod.choice(mode)
@@ -154,17 +156,14 @@ def select(mode: Mode) -> None:
 
 	match choice.speaker:
 		case Speaker.DEFAULT:
-			for profile_suffix in ('Headphones, Headset', 'Headphones, Mic', 'Earpiece, Mic'):
-				if f'{profile_name} ({profile_suffix})' in available_profiles:
-					profile_name = f'{profile_name} ({profile_suffix})'
-					found_profile = True
-					break
+			profile_suffixes = choice.speaker_default_profile_suffixes
 		case Speaker.FORCED:
-			for profile_suffix in ('Headset, Speaker', 'Mic, Speaker'):
-				if f'{profile_name} ({profile_suffix})' in available_profiles:
-					profile_name = f'{profile_name} ({profile_suffix})'
-					found_profile = True
-					break
+			profile_suffixes = choice.speaker_forced_profile_suffixes
+	for profile_suffix in profile_suffixes:
+		if f'{profile_name} ({profile_suffix})' in available_profiles:
+			profile_name = f'{profile_name} ({profile_suffix})'
+			found_profile = True
+			break
 
 	assert found_profile
 
@@ -238,8 +237,32 @@ class CallAudiod:
 	</node>
 	"""
 
-	__default_mode_choice = Choice(speaker=Speaker.DEFAULT, mic=Mic.UNMUTED)
-	__call_mode_choice = Choice(speaker=Speaker.DEFAULT, mic=Mic.UNMUTED)
+	__default_mode_choice = Choice(
+		speaker=Speaker.DEFAULT,
+		mic=Mic.UNMUTED,
+		speaker_default_profile_suffixes=(
+			'Headphones, Headset',
+			'Headphones, Mic',
+			'Mic, Speaker', # HiFi mode uses speakers by default, not earpiece.
+		),
+		speaker_forced_profile_suffixes=(
+			'Headset, Speaker',
+			'Mic, Speaker',
+		),
+	)
+	__call_mode_choice = Choice(
+		speaker=Speaker.DEFAULT,
+		mic=Mic.UNMUTED,
+		speaker_default_profile_suffixes=(
+			'Headphones, Headset',
+			'Headphones, Mic',
+			'Earpiece, Mic',
+		),
+		speaker_forced_profile_suffixes=(
+			'Headset, Speaker',
+			'Mic, Speaker',
+		),
+	)
 
 	def __init__(self):
 		self.__mode = Mode.DEFAULT
@@ -253,7 +276,10 @@ class CallAudiod:
 				if self.__mode == Mode.DEFAULT:
 					# When switching from DEFAULT to CALL, first reset call mode choice to defaults,
 					# because GNOME calls expects CALL mode to start off with defaults.
-					CallAudiod.__call_mode_choice = Choice(speaker=Speaker.DEFAULT, mic=Mic.UNMUTED)
+					CallAudiod.__call_mode_choice = CallAudiod.__call_mode_choice._replace(
+						speaker=Speaker.DEFAULT,
+						mic=Mic.UNMUTED,
+					)
 
 				self.__mode = Mode.CALL
 
@@ -272,9 +298,9 @@ class CallAudiod:
 
 		match self.__mode:
 			case Mode.DEFAULT:
-				CallAudiod.__default_mode_choice = Choice(speaker=speaker, mic=CallAudiod.__default_mode_choice.mic)
+				CallAudiod.__default_mode_choice = CallAudiod.__default_mode_choice._replace(speaker=speaker)
 			case Mode.CALL:
-				CallAudiod.__call_mode_choice = Choice(speaker=speaker, mic=CallAudiod.__call_mode_choice.mic)
+				CallAudiod.__call_mode_choice = CallAudiod.__call_mode_choice._replace(speaker=speaker)
 
 		select(self.__mode)
 
@@ -288,9 +314,9 @@ class CallAudiod:
 
 		match self.__mode:
 			case Mode.DEFAULT:
-				CallAudiod.__default_mode_choice = Choice(speaker=CallAudiod.__default_mode_choice.speaker, mic=mic)
+				CallAudiod.__default_mode_choice = CallAudiod.__default_mode_choice._replace(mic=mic)
 			case Mode.CALL:
-				CallAudiod.__call_mode_choice = Choice(speaker=CallAudiod.__call_mode_choice.speaker, mic=mic)
+				CallAudiod.__call_mode_choice = CallAudiod.__call_mode_choice._replace(mic=mic)
 
 		select(self.__mode)
 

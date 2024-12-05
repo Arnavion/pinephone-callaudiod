@@ -1,6 +1,6 @@
 A replacement for [callaudiod](https://gitlab.com/mobian1/callaudiod) for the Pine64 PinePhone device.
 
-Pulseaudio v17 and Pipewire v1.2 changed the way audio profiles are generated, which upstream callaudiod does not handle well. This replacement does, and is also simpler to hack upon by virtue of having a much simpler state machine and much less code in general.
+Pulseaudio v17 and Pipewire v1.2 changed the way audio profiles are generated, which upstream callaudiod (as of v0.1.10) does not handle well. This replacement does, and is also simpler to hack upon by virtue of having a much simpler state machine and much less code in general.
 
 "Replacement" means that this script can be used in the place of callaudiod's `callaudiod` binary but provides the same D-Bus API, so that other applications that talk to callaudiod directly over D-Bus or via `libcallaudiod` will work without modification.
 

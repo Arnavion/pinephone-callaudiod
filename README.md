@@ -45,4 +45,4 @@ You should have received a copy of the GNU Affero General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 ```
 
-The `org.mobian_project.CallAudio.service` and `org.mobian_project.CallAudio.xml` files are copied from [upstream callaudiod](https://gitlab.com/mobian1/callaudiod) which uses the GPL-3.0-or-later license.
+The `org.mobian_project.CallAudio.service.in` and `org.mobian_project.CallAudio.xml` files are copied from [upstream callaudiod](https://gitlab.com/mobian1/callaudiod) which uses the GPL-3.0-or-later license.
